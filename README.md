@@ -68,4 +68,4 @@ For questions or roadmap updates, please open an issue or reach out to the team 
 
 ## License
 
-Distributed under the terms of the [MIT License](LICENSE).
+Distributed under the terms of the [Apache License](LICENSE).
