@@ -23,6 +23,7 @@ Refer to the individual folder READMEs for deeper detail.
 
 - [Updated Research Plan (Nov 2025)](docs/research_plan.md)
 - [Architecture Overview](docs/architecture.md)
+- [Self-Refinement VLM Overview](docs/self_refinement_overview.md)
 - [Dataset Curation Workflow](docs/dataset_curation.md)
 - [Human Evaluation Protocol](docs/human_evaluation_protocol.md)
 - [Docs Index](docs/README.md)
