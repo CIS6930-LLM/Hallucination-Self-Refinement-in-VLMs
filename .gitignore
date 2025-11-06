@@ -1,0 +1,32 @@
+# Data artifacts
+data/raw/*
+!data/raw/.gitkeep
+data/processed/*
+!data/processed/.gitkeep
+data/synthetic/*
+!data/synthetic/.gitkeep
+data/annotations/*
+!data/annotations/.gitkeep
+
+# Model checkpoints and logs
+models/checkpoints/*
+!models/checkpoints/.gitkeep
+experiments/logs/*
+!experiments/logs/.gitkeep
+experiments/reports/*
+!experiments/reports/.gitkeep
+
+# Python cache and env
+__pycache__/
+*.py[cod]
+*.so
+.env
+.venv/
+
+# Notebook artifacts
+.ipynb_checkpoints/
+notebooks/.ipynb_checkpoints/
+
+# System files
+.DS_Store
+Thumbs.db
