@@ -129,5 +129,16 @@ def load_adapter(name: str) -> BaseVLMAdapter:
     #     from .adapters.blip2_adapter import Blip2Adapter
     #     return Blip2Adapter.from_pretrained(...)
 
-    raise ValueError(f"Unknown adapter: {name}")
+    if name in {"minigpt4", "mini-gpt4", "mini_gpt4"}:
+        try:
+            from .adapters.minigpt4_adapter import MiniGPT4Adapter
+        except Exception as e:
+            raise RuntimeError(
+                "MiniGPT-4 adapter import failed. Ensure the MiniGPT-4 repo is installed (pip install -e .) and dependencies are satisfied."
+            ) from e
+        # Return adapter without initializing heavy model; require explicit constructor usage
+        raise RuntimeError(
+            "Use MiniGPT4Adapter(...) directly to provide config/ckpt paths. Example: MiniGPT4Adapter(config_yaml, ckpt_path)."
+        )
 
+    raise ValueError(f"Unknown adapter: {name}")

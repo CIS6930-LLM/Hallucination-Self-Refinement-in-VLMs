@@ -1,0 +1,7 @@
+minigpt4:
+  repo_path: /path/to/your/local/MiniGPT-4  # e.g., C:/Users/you/code/MiniGPT-4
+  config_yaml: /path/to/minigpt4/config.yaml
+  ckpt_path: /path/to/minigpt4/checkpoint.pth
+  device: cuda  # or cpu
+  fallback_on_missing: true
+
