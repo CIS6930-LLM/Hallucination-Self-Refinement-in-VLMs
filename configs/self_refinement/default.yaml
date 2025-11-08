@@ -1,0 +1,18 @@
+experiment:
+  name: sft_v1
+  seed: 42
+
+data:
+  train_jsonl: data/processed/self_refine_triplets_train.jsonl
+  val_jsonl: data/processed/self_refine_triplets_val.jsonl
+
+model:
+  adapter: dummy  # change to 'llava' or 'blip2' when integrated
+  rationale_check_threshold: 0.3
+  enable_revision: true
+
+train:
+  batch_size: 4
+  epochs: 1
+  lr: 1e-5
+
