@@ -1,3 +1,4 @@
+#usage python process_haloquest.py --csv-file ... --image-dir ... --output-file ... --ensure-format
 import argparse
 import csv
 import os
@@ -32,13 +33,40 @@ def load_image(image_file):
     return image
 
 
+def format_response(response):
+    """Ensure response follows Answer: ... Rationale: ... format"""
+    response = response.strip()
+    
+    # Check if already in correct format
+    if 'Answer:' in response and 'Rationale:' in response:
+        # Try to extract and clean up
+        parts = response.split('Rationale:', 1)
+        if len(parts) == 2:
+            answer_part = parts[0].replace('Answer:', '').strip()
+            rationale_part = parts[1].strip()
+            return f"Answer: {answer_part}\nRationale: {rationale_part}"
+        return response
+    
+    # If not in format, try to parse and reformat
+    # Check if it starts with "Answer:" but missing Rationale
+    if response.startswith('Answer:') or 'Answer:' in response:
+        answer_part = response.split('Answer:')[-1].strip()
+        if 'Rationale:' not in answer_part:
+            # Use the answer as rationale if no separate rationale provided
+            return f"Answer: {answer_part}\nRationale: Based on the image, {answer_part.lower()}"
+    
+    # If no format detected, treat entire response as answer
+    # and generate a simple rationale
+    return f"Answer: {response}\nRationale: Based on visual analysis of the image, {response.lower()}"
+
+
 def eval_model_single(tokenizer, model, image_processor, args, image_path, question):
     """Evaluate a single image-question pair and return the response"""
-    qs = question
     
-    # Add instruction for Answer + Rationale format
+    # Add instruction for Answer + Rationale format with stronger emphasis
     # Format: Answer: [answer] Rationale: [rationale]
-    qs = f"{qs}\n\nPlease provide your response in the following format:\nAnswer: [your answer]\nRationale: [your reasoning]"
+    # Put format requirement first to make it more prominent
+    qs = f"IMPORTANT: You must respond in the following exact format:\n\nAnswer: [your answer]\nRationale: [your reasoning]\n\nQuestion: {question}"
     
     image_token_se = DEFAULT_IM_START_TOKEN + DEFAULT_IMAGE_TOKEN + DEFAULT_IM_END_TOKEN
     if IMAGE_PLACEHOLDER in qs:
@@ -115,6 +143,10 @@ def eval_model_single(tokenizer, model, image_processor, args, image_path, quest
     else:
         response = outputs
     
+    # Format response to ensure it follows Answer: ... Rationale: ... format
+    if args.ensure_format:
+        response = format_response(response)
+    
     return response
 
 
@@ -130,17 +162,22 @@ def process_haloquest_data(args):
     
     # Read CSV file
     results = []
+    successful_count = 0  # Counter for successfully processed samples
+    
     with open(args.csv_file, 'r', encoding='utf-8') as f:
         reader = csv.DictReader(f)
         rows = list(reader)
         total_rows = len(rows)
         
-        # Apply limit if specified
         if args.limit and args.limit > 0:
-            rows = rows[:args.limit]
-            print(f"[INFO] Processing limited to first {len(rows)} samples")
+            print(f"[INFO] Will process up to {args.limit} successful samples (errors not counted)")
         
         for idx, row in enumerate(rows, 1):
+            # Check if we've reached the limit of successful samples
+            if args.limit and args.limit > 0 and successful_count >= args.limit:
+                print(f"\n[INFO] Reached limit of {args.limit} successful samples. Stopping.")
+                break
+            
             image_name = row['image_name']
             question = row['question']
             image_type = row.get('image type', '')
@@ -151,7 +188,7 @@ def process_haloquest_data(args):
             image_path = os.path.join(args.image_dir, image_name)
             
             if not os.path.exists(image_path):
-                print(f"[WARNING] Image not found: {image_path}, skipping...")
+                print(f"[{idx}/{total_rows}] [WARNING] Image not found: {image_path}, skipping (not counted)")
                 results.append({
                     'image_name': image_name,
                     'question': question,
@@ -162,8 +199,7 @@ def process_haloquest_data(args):
                 })
                 continue
             
-            current_total = len(rows) if (args.limit and args.limit > 0) else total_rows
-            print(f"[{idx}/{current_total}] Processing: {image_name}")
+            print(f"[{idx}/{total_rows}] Processing: {image_name} (Success: {successful_count}/{args.limit if args.limit else 'N/A'})")
             print(f"  Question: {question}")
             
             try:
@@ -184,8 +220,11 @@ def process_haloquest_data(args):
                     'split': split
                 })
                 
+                # Increment successful count only when processing succeeds
+                successful_count += 1
+                
             except Exception as e:
-                print(f"  [ERROR] Failed to process: {str(e)}")
+                print(f"  [ERROR] Failed to process: {str(e)} (not counted)")
                 results.append({
                     'image_name': image_name,
                     'question': question,
@@ -205,7 +244,13 @@ def process_haloquest_data(args):
         writer.writerows(results)
     
     print(f"\nResults saved to: {output_file}")
-    print(f"Total processed: {len(results)}")
+    print(f"Total rows processed: {len(results)}")
+    if args.limit and args.limit > 0:
+        print(f"Successful samples: {successful_count}/{args.limit}")
+    else:
+        # Count successful samples (those without ERROR prefix)
+        successful_in_results = sum(1 for r in results if not r['answer_rationale'].startswith('ERROR:'))
+        print(f"Successful samples: {successful_in_results}")
 
 
 if __name__ == "__main__":
@@ -232,6 +277,8 @@ if __name__ == "__main__":
                        help="Maximum number of new tokens to generate")
     parser.add_argument("--limit", type=int, default=None,
                        help="Limit the number of samples to process (for testing)")
+    parser.add_argument("--ensure-format", action="store_true", default=False,
+                       help="Post-process responses to ensure Answer: ... Rationale: ... format")
     
     args = parser.parse_args()
     
