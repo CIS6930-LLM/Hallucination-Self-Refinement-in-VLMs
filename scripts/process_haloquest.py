@@ -46,18 +46,10 @@ def format_response(response):
             rationale_part = parts[1].strip()
             return f"Answer: {answer_part}\nRationale: {rationale_part}"
         return response
-    
-    # If not in format, try to parse and reformat
-    # Check if it starts with "Answer:" but missing Rationale
-    if response.startswith('Answer:') or 'Answer:' in response:
-        answer_part = response.split('Answer:')[-1].strip()
-        if 'Rationale:' not in answer_part:
-            # Use the answer as rationale if no separate rationale provided
-            return f"Answer: {answer_part}\nRationale: Based on the image, {answer_part.lower()}"
-    
-    # If no format detected, treat entire response as answer
-    # and generate a simple rationale
-    return f"Answer: {response}\nRationale: Based on visual analysis of the image, {response.lower()}"
+
+    # Otherwise, leave the model output as-is; downstream code may choose to
+    # post-process or filter responses without fabricating generic rationales.
+    return response
 
 
 def eval_model_single(tokenizer, model, image_processor, args, image_path, question):
@@ -65,8 +57,16 @@ def eval_model_single(tokenizer, model, image_processor, args, image_path, quest
     
     # Add instruction for Answer + Rationale format with stronger emphasis
     # Format: Answer: [answer] Rationale: [rationale]
-    # Put format requirement first to make it more prominent
-    qs = f"IMPORTANT: You must respond in the following exact format:\n\nAnswer: [your answer]\nRationale: [your reasoning]\n\nQuestion: {question}"
+    # Put format requirement first to make it more prominent and encourage
+    # concrete, image-grounded evidence in the rationale.
+    qs = (
+        "You are a vision-language assistant. First answer the question, "
+        "then give a short but specific visual rationale.\n"
+        "Format exactly:\n"
+        "Answer: <one short answer>\n"
+        "Rationale: <2 short sentences mentioning concrete visual evidence>\n\n"
+        f"Question: {question}"
+    )
     
     image_token_se = DEFAULT_IM_START_TOKEN + DEFAULT_IMAGE_TOKEN + DEFAULT_IM_END_TOKEN
     if IMAGE_PLACEHOLDER in qs:
@@ -273,7 +273,7 @@ if __name__ == "__main__":
                        help="Top-p for generation")
     parser.add_argument("--num-beams", type=int, default=1,
                        help="Number of beams for generation")
-    parser.add_argument("--max-new-tokens", type=int, default=512,
+    parser.add_argument("--max-new-tokens", type=int, default=128,
                        help="Maximum number of new tokens to generate")
     parser.add_argument("--limit", type=int, default=None,
                        help="Limit the number of samples to process (for testing)")
@@ -283,4 +283,3 @@ if __name__ == "__main__":
     args = parser.parse_args()
     
     process_haloquest_data(args)
-

@@ -23,21 +23,20 @@ class MiniGPT4Init:
 
 
 class MiniGPT4Adapter(BaseVLMAdapter):
-    """Adapter scaffold for MiniGPT-4.
+    """Adapter for MiniGPT-4 model.
 
-    Notes:
-      - This is a light-weight scaffold. The public MiniGPT-4 repos expose
-        different APIs across versions; integrate your specific pipeline in the
-        marked sections below.
-      - When `fallback_on_missing=True`, the adapter returns deterministic
-        placeholder outputs if MiniGPT-4 is not installed, allowing you to run
-        end-to-end scaffolding without GPU/weights.
+    Loads and manages MiniGPT-4 for VLM tasks including answer generation
+    and rationale generation.
     """
 
     def __init__(self, init: MiniGPT4Init):
         self.init = init
         self.ready = False
         self.info = ""
+        self.backend = None
+        self.vis_processor = None
+        self.chat = None
+        self.device_id = 0
 
         if init.repo_path:
             repo = Path(init.repo_path)
@@ -45,15 +44,62 @@ class MiniGPT4Adapter(BaseVLMAdapter):
                 sys.path.insert(0, str(repo))
 
         if _has_minigpt4():
-            # TODO: Integrate your exact MiniGPT-4 pipeline here. For example:
-            #   from minigpt4.common.config import Config
-            #   cfg = Config(init.config_yaml)
-            #   model = load_your_minigpt4_model(cfg, ckpt=init.ckpt_path, device=init.device)
-            #   self.backend = model
-            #   self.ready = True
-            self.info = (
-                "MiniGPT-4 package detected. Adapter scaffold ready — implement model loading in adapters/minigpt4_adapter.py."
-            )
+            try:
+                import torch
+                from transformers import StoppingCriteriaList
+                from minigpt4.common.config import Config
+                from minigpt4.common.registry import registry
+                from minigpt4.conversation.conversation import Chat, CONV_VISION_LLama2, StoppingCriteriaSub
+                
+                # Determine device
+                if init.device:
+                    self.device_id = int(init.device.split(':')[-1]) if ':' in init.device else 0
+                
+                # Load configuration
+                config_path = init.config_yaml or "eval_configs/minigptv2_eval.yaml"
+                
+                # Create args object with proper attributes
+                class Args:
+                    def __init__(self, cfg_path, gpu_id):
+                        self.cfg_path = cfg_path
+                        self.options = []
+                        self.gpu_id = gpu_id
+                
+                args = Args(cfg_path=config_path, gpu_id=self.device_id)
+                cfg = Config(args)
+                
+                # Load model
+                model_config = cfg.model_cfg
+                model_config.device_8bit = self.device_id
+                model_cls = registry.get_model_class(model_config.arch)
+                model = model_cls.from_config(model_config).to(f'cuda:{self.device_id}')
+                
+                # Load visual processor
+                vis_processor_cfg = cfg.datasets_cfg.cc_sbu_align.vis_processor.train
+                vis_processor = registry.get_processor_class(vis_processor_cfg.name).from_config(vis_processor_cfg)
+                
+                # Setup stopping criteria
+                stop_words_ids = [[835], [2277, 29937]]
+                stop_words_ids = [torch.tensor(ids).to(device=f'cuda:{self.device_id}') for ids in stop_words_ids]
+                stopping_criteria = StoppingCriteriaList([StoppingCriteriaSub(stops=stop_words_ids)])
+                
+                # Create chat interface
+                chat = Chat(model, vis_processor, device=f'cuda:{self.device_id}', stopping_criteria=stopping_criteria)
+                
+                self.backend = model
+                self.vis_processor = vis_processor
+                self.chat = chat
+                self.ready = True
+                self.info = "MiniGPT-4 model loaded successfully."
+                print(f"[MiniGPT4Adapter] {self.info}")
+                
+            except Exception as e:
+                import traceback
+                self.info = f"Failed to load MiniGPT-4: {str(e)}"
+                print(f"[MiniGPT4Adapter] {self.info}")
+                print(traceback.format_exc())
+                if not init.fallback_on_missing:
+                    raise RuntimeError(self.info)
         else:
             self.info = (
                 "MiniGPT-4 not found. Using placeholder outputs (fallback_on_missing)."
@@ -65,24 +111,76 @@ class MiniGPT4Adapter(BaseVLMAdapter):
 
     # --- BaseVLMAdapter interface ---
     def generate_answer(self, image: Any, question: str, **gen_kwargs) -> str:
-        if self.ready:
-            # Implement actual generation via MiniGPT-4 backend
-            # return self.backend.generate_answer(image, question, **gen_kwargs)
-            raise NotImplementedError(
-                "Hook MiniGPT-4 generation call here for your repo version."
-            )
+        if self.ready and self.chat:
+            try:
+                from minigpt4.conversation.conversation import CONV_VISION_LLama2
+                
+                # Create a conversation state
+                chat_state = CONV_VISION_LLama2.copy()
+                img_list = []
+                
+                # Upload and encode image
+                self.chat.upload_img(image, chat_state, img_list)
+                self.chat.encode_img(img_list)
+                
+                # Ask question and get answer
+                self.chat.ask(question, chat_state)
+                
+                # Get response
+                num_beams = gen_kwargs.get('num_beams', 1)
+                temperature = gen_kwargs.get('temperature', 1.0)
+                max_new_tokens = gen_kwargs.get('max_new_tokens', 300)
+                
+                answer = self.chat.answer(conv=chat_state,
+                                         img_list=img_list,
+                                         num_beams=num_beams,
+                                         temperature=temperature,
+                                         max_new_tokens=max_new_tokens,
+                                         max_length=2000)[0]
+                return answer.strip()
+            except Exception as e:
+                print(f"Error generating answer: {e}")
+                # Fallback to stub
+                q = (question or "").strip().rstrip("?")
+                return f"[MiniGPT-4] Answer to: {q}"
+        
         # Fallback deterministic output
         q = (question or "").strip().rstrip("?")
         return f"[MiniGPT-4 stub] Answer to: {q}"
 
     def generate_rationale(self, image: Any, question: str, answer: str, **gen_kwargs) -> str:
-        if self.ready:
-            # Implement actual rationale generation if your MiniGPT-4 supports it
-            # or call the same generator with a rationale-style prompt.
-            raise NotImplementedError(
-                "Hook MiniGPT-4 rationale generation here or prompt the model for rationale."
-            )
-        return (
-            f"[MiniGPT-4 stub] Rationale: The image cues support the answer '{answer}'."
-        )
+        if self.ready and self.chat:
+            try:
+                from minigpt4.conversation.conversation import CONV_VISION_LLama2
+                
+                # Create a conversation state
+                chat_state = CONV_VISION_LLama2.copy()
+                img_list = []
+                
+                # Upload and encode image
+                self.chat.upload_img(image, chat_state, img_list)
+                self.chat.encode_img(img_list)
+                
+                # Ask for rationale
+                rationale_prompt = f"Question: {question}\nAnswer: {answer}\nProvide a brief rationale for this answer:"
+                self.chat.ask(rationale_prompt, chat_state)
+                
+                # Get response
+                num_beams = gen_kwargs.get('num_beams', 1)
+                temperature = gen_kwargs.get('temperature', 1.0)
+                max_new_tokens = gen_kwargs.get('max_new_tokens', 200)
+                
+                rationale = self.chat.answer(conv=chat_state,
+                                            img_list=img_list,
+                                            num_beams=num_beams,
+                                            temperature=temperature,
+                                            max_new_tokens=max_new_tokens,
+                                            max_length=2000)[0]
+                return rationale.strip()
+            except Exception as e:
+                print(f"Error generating rationale: {e}")
+                # Fallback to stub
+                return f"[MiniGPT-4] Rationale: The image cues support the answer '{answer}'."
+        
+        return f"[MiniGPT-4 stub] Rationale: The image cues support the answer '{answer}'."
 

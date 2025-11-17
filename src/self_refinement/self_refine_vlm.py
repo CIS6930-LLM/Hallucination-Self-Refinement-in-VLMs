@@ -121,6 +121,12 @@ def load_adapter(name: str) -> BaseVLMAdapter:
     if name in {"dummy", "mock"}:
         return DummyAdapter()
 
+    if name in {"hf-text", "hf_text"}:
+        from .adapters.hf_text_adapter import HFTextAdapter, HFTextInit
+
+        # Use default HFTextInit; adjust model_name/device in code if needed.
+        return HFTextAdapter(HFTextInit())
+
     # Placeholder for future extensions, e.g.:
     # if name == "llava":
     #     from .adapters.llava_adapter import LlavaAdapter
